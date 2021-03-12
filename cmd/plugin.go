@@ -179,7 +179,7 @@ type installReport struct {
 	IsUpdateReport bool
 }
 
-func (ir *installReport) String() string {
+func (ir *installReport) SkipString() string {
 	ref := ociinstaller.NewSteampipeImageRef(ir.Plugin)
 	_, name, stream := ref.GetOrgNameAndStream()
 
@@ -210,9 +210,9 @@ func runPluginInstallCmd(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	if len(plugins) > 1 {
-		fmt.Println()
-	}
+	// a leading blank line at the top, since we have multiple
+	// lines in the output - no matter the outcome
+	fmt.Println()
 
 	spinner := utils.ShowSpinner("")
 
@@ -265,9 +265,9 @@ func runPluginInstallCmd(cmd *cobra.Command, args []string) {
 	refreshConnections(installReports)
 	printInstallReports(installReports, false)
 
-	if len(plugins) > 1 {
-		fmt.Println()
-	}
+	// a concluding blank line at the bottom, since we have multiple
+	// lines in the output - no matter the outcome
+	fmt.Println()
 }
 
 func runPluginUpdateCmd(cmd *cobra.Command, args []string) {
@@ -319,6 +319,10 @@ func runPluginUpdateCmd(cmd *cobra.Command, args []string) {
 	var runUpdatesFor []*versionfile.InstalledVersion
 	updateReports := make([]installReport, 0, len(plugins))
 
+	// a leading blank line at the top, since we have multiple
+	// lines in the output - no matter the outcome
+	fmt.Println()
+
 	if cmdconfig.Viper().GetBool("all") {
 		for k, v := range versionData.Plugins {
 			ref := ociinstaller.NewSteampipeImageRef(k)
@@ -346,10 +350,13 @@ func runPluginUpdateCmd(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	if len(plugins) > 0 {
-		// add a blank line at the top since this is going to be
-		// a multi output
+	if len(plugins) == len(updateReports) {
+		// we have report for all
+		// this may happen if all given plugins are
+		// not installed
+		printInstallReports(updateReports, true)
 		fmt.Println()
+		return
 	}
 
 	spinner := utils.ShowSpinner("Checking for available updates")
@@ -415,57 +422,110 @@ func runPluginUpdateCmd(cmd *cobra.Command, args []string) {
 	refreshConnections(updateReports)
 	printInstallReports(updateReports, true)
 
-	if len(plugins) > 1 {
-		fmt.Println()
-	}
+	// a concluding blank line at the bottom, since we have multiple
+	// lines in the output - no matter the outcome
+	fmt.Println()
 }
 
 // Prints out the installation reports onto the console
 func printInstallReports(reports []installReport, isUpdateReport bool) {
 	installedOrUpdated := []installReport{}
-	skippedBecauseNotExists := []installReport{}
-	skippedBecauseLatest := []installReport{}
-	skippedBecauseExists := []installReport{}
+	canBeInstalled := []installReport{}
+	canBeUpdated := []installReport{}
 
 	for _, report := range reports {
 		if !report.Skipped {
 			installedOrUpdated = append(installedOrUpdated, report)
-		} else if report.SkipReason == "Latest already installed" {
-			skippedBecauseLatest = append(skippedBecauseLatest, report)
 		} else if report.SkipReason == "Not installed" {
-			skippedBecauseNotExists = append(skippedBecauseNotExists, report)
+			canBeInstalled = append(canBeInstalled, report)
 		} else if report.SkipReason == "Already installed" {
-			skippedBecauseExists = append(skippedBecauseExists, report)
+			canBeUpdated = append(canBeUpdated, report)
 		}
 	}
 
 	if len(installedOrUpdated) > 0 {
+		asString := []string{}
 		for _, report := range installedOrUpdated {
+			thisReport := []string{}
 			if isUpdateReport {
-				fmt.Printf("Updated plugin: %s%s\n", constants.Bold(report.Plugin), report.Version)
+				thisReport = append(
+					thisReport,
+					fmt.Sprintf("Updated plugin: %s%s", constants.Bold(report.Plugin), report.Version),
+				)
+
 				if len(report.DocURL) > 0 {
-					fmt.Printf("Documentation:  %s\n", report.DocURL)
+					thisReport = append(
+						thisReport,
+						fmt.Sprintf("Documentation:  %s", report.DocURL),
+					)
 				}
 			} else {
-				fmt.Printf("Installed plugin: %s%s\n", constants.Bold(report.Plugin), report.Version)
+				thisReport = append(
+					thisReport,
+					fmt.Sprintf("Installed plugin: %s%s", constants.Bold(report.Plugin), report.Version),
+				)
+
 				if len(report.DocURL) > 0 {
-					fmt.Printf("Documentation:    %s\n", report.DocURL)
+					thisReport = append(
+						thisReport,
+						fmt.Sprintf("Documentation:    %s", report.DocURL),
+					)
 				}
 			}
-			fmt.Println()
+			asString = append(asString, strings.Join(thisReport, "\n"))
 		}
+		fmt.Println(strings.Join(asString, "\n\n"))
+		fmt.Println()
 	}
 
 	if len(installedOrUpdated) < len(reports) {
 		skipCount := len(reports) - len(installedOrUpdated)
+		asString := []string{}
+		for _, report := range reports {
+			if report.Skipped {
+				asString = append(asString, report.SkipString())
+			}
+		}
 		// some have skipped
 		fmt.Printf(
-			"Skipped the following %s:\n\n",
+			"Skipped the following %s:\n\n%s\n",
 			utils.Pluralize("plugin", skipCount),
+			strings.Join(asString, "\n\n"),
 		)
-	}
-	fmt.Println(strings.Repeat("*", 20))
 
+		if len(canBeInstalled) > 0 {
+			asString := []string{}
+			for _, r := range canBeInstalled {
+				asString = append(asString, r.Plugin)
+			}
+			fmt.Println()
+			fmt.Printf(
+				"To install %s which %s not installed, please run %s\n",
+				utils.Pluralize("plugin", len(canBeInstalled)),
+				utils.Pluralize("is", len(canBeInstalled)),
+				constants.Bold(fmt.Sprintf(
+					"steampipe plugin install %s",
+					strings.Join(asString, " "),
+				)),
+			)
+		}
+		if len(canBeUpdated) > 0 {
+			asString := []string{}
+			for _, r := range canBeUpdated {
+				asString = append(asString, r.Plugin)
+			}
+			fmt.Println()
+			fmt.Printf(
+				"To update %s which %s already installed, please run %s\n",
+				utils.Pluralize("plugin", len(canBeUpdated)),
+				utils.Pluralize("is", len(canBeUpdated)),
+				constants.Bold(fmt.Sprintf(
+					"steampipe plugin update %s",
+					strings.Join(asString, " "),
+				)),
+			)
+		}
+	}
 }
 
 // start service if necessary and refresh connections
