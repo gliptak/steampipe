@@ -475,7 +475,6 @@ func printInstallReports(reports []installReport, isUpdateReport bool) {
 			asString = append(asString, strings.Join(thisReport, "\n"))
 		}
 		fmt.Println(strings.Join(asString, "\n\n"))
-		fmt.Println()
 	}
 
 	if len(installedOrUpdated) < len(reports) {
@@ -487,6 +486,9 @@ func printInstallReports(reports []installReport, isUpdateReport bool) {
 			}
 		}
 		// some have skipped
+		if len(installedOrUpdated) > 0 {
+			fmt.Println()
+		}
 		fmt.Printf(
 			"Skipped the following %s:\n\n%s\n",
 			utils.Pluralize("plugin", skipCount),
